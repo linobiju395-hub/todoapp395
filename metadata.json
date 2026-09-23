@@ -1,8 +1,0 @@
-{
-  "name": "Todo App",
-  "description": "A professional task management application with Supabase backend support, categories, priorities, due dates, subtasks, and real-time filtering.",
-  "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
-}
