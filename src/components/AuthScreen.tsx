@@ -1,12 +1,8 @@
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import {
   CheckSquare,
-  Lock,
   Mail,
-  User,
-  Eye,
-  EyeOff,
   Sun,
   Moon,
   Database,
@@ -16,7 +12,7 @@ import {
   AlertCircle,
   RefreshCw,
 } from 'lucide-react';
-import { signIn, signUp, requestPasswordReset } from '../lib/auth';
+import { sendOtp, verifyOtp } from '../lib/auth';
 import { UserProfile } from '../types';
 
 interface AuthScreenProps {
@@ -34,52 +30,92 @@ export function AuthScreen({
   theme,
   onToggleTheme,
 }: AuthScreenProps) {
-  const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>('signin');
+  const [step, setStep] = useState<'email' | 'otp'>('email');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSendCode = async (e: React.FormEvent) => {
     e.preventDefault();
+
     setError(null);
     setMessage(null);
     setLoading(true);
 
     try {
-      if (mode === 'signin') {
-        const res = await signIn(email, password);
-        if (res.error) {
-          setError(res.error);
-        } else if (res.user) {
-          onAuthSuccess(res.user);
-        }
-      } else if (mode === 'signup') {
-        const res = await signUp(email, password, name);
-        if (res.error) {
-          setError(res.error);
-        } else if (res.user) {
-          if (res.message) {
-            setMessage(res.message);
-          }
-          onAuthSuccess(res.user);
-        }
-      } else if (mode === 'forgot') {
-        const res = await requestPasswordReset(email);
-        if (!res.success) {
-          setError(res.error || 'Failed to send password reset');
-        } else {
-          setMessage(res.message || 'Password reset link sent to your email.');
-        }
+      const res = await sendOtp(email.trim());
+
+      if (res.error) {
+        setError(res.error);
+      } else {
+        setStep('otp');
+        setMessage('A 6-digit verification code has been sent to your email.');
       }
     } catch (err: any) {
-      setError(err?.message || 'Authentication failed. Please check credentials.');
+      setError(err?.message || 'Failed to send verification code.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleVerifyCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    setError(null);
+    setMessage(null);
+
+    if (!/^\d{6}$/.test(code)) {
+      setError('Please enter the 6-digit verification code.');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const res = await verifyOtp(email.trim(), code);
+
+      if (res.error) {
+        setError(res.error);
+      } else if (res.user) {
+        onAuthSuccess(res.user);
+      } else {
+        setError('Verification failed. Please try again.');
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Verification failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setError(null);
+    setMessage(null);
+    setLoading(true);
+
+    try {
+      const res = await sendOtp(email.trim());
+
+      if (res.error) {
+        setError(res.error);
+      } else {
+        setMessage('A new verification code has been sent to your email.');
+        setCode('');
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Failed to resend verification code.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleChangeEmail = () => {
+    setStep('email');
+    setCode('');
+    setError(null);
+    setMessage(null);
   };
 
   return (
@@ -90,6 +126,7 @@ export function AuthScreen({
           <div className="w-7 h-7 rounded-md bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 flex items-center justify-center shadow-xs">
             <CheckSquare className="w-4 h-4 stroke-[2.5]" />
           </div>
+
           <span className="font-semibold text-sm tracking-tight text-neutral-900 dark:text-white">
             Minimalist Tasks
           </span>
@@ -104,10 +141,14 @@ export function AuthScreen({
             title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
             aria-label="Toggle theme"
           >
-            {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+            {theme === 'dark' ? (
+              <Sun className="w-3.5 h-3.5" />
+            ) : (
+              <Moon className="w-3.5 h-3.5" />
+            )}
           </button>
 
-          {/* Database Status Button */}
+          {/* Database Status */}
           <button
             type="button"
             onClick={onOpenSupabaseModal}
@@ -119,19 +160,23 @@ export function AuthScreen({
             title="Database Configuration"
           >
             <Database className="w-3.5 h-3.5 opacity-80" />
+
             <span className="hidden sm:inline text-[11px]">
               {isSupabaseConnected ? 'Connected' : 'Database'}
             </span>
+
             <span
               className={`w-1.5 h-1.5 rounded-full ${
-                isSupabaseConnected ? 'bg-emerald-500' : 'bg-neutral-400 dark:bg-neutral-600'
+                isSupabaseConnected
+                  ? 'bg-emerald-500'
+                  : 'bg-neutral-400 dark:bg-neutral-600'
               }`}
             />
           </button>
         </div>
       </header>
 
-      {/* Main Centered Content */}
+      {/* Main Content */}
       <div className="flex-1 flex items-center justify-center px-4 py-12">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
@@ -139,172 +184,95 @@ export function AuthScreen({
           transition={{ duration: 0.2 }}
           className="w-full max-w-sm"
         >
-          {/* Brand Header */}
+          {/* Header */}
           <div className="text-center mb-6">
             <h1 className="text-xl font-bold tracking-tight text-neutral-900 dark:text-white">
-              {mode === 'signin'
+              {step === 'email'
                 ? 'Sign In to Your Workspace'
-                : mode === 'signup'
-                ? 'Create Your Account'
-                : 'Reset Password'}
+                : 'Enter Verification Code'}
             </h1>
+
             <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-              {mode === 'signin'
-                ? 'Enter your credentials to access your private tasks'
-                : mode === 'signup'
-                ? 'Get started with a clean, distraction-free workspace'
-                : 'Enter your email to receive recovery instructions'}
+              {step === 'email'
+                ? 'Enter your email to receive a 6-digit verification code'
+                : `We sent a 6-digit code to ${email}`}
             </p>
           </div>
 
-          {/* Card Container */}
+          {/* Card */}
           <div className="bg-white dark:bg-[#14161b] border border-neutral-200 dark:border-white/[0.1] rounded-xl shadow-lg dark:shadow-2xl/40 overflow-hidden">
-            {/* Tabs for Sign In / Create Account */}
-            {mode !== 'forgot' && (
-              <div className="flex border-b border-neutral-100 dark:border-white/[0.06] bg-neutral-50/80 dark:bg-white/[0.02] p-1.5">
-                <button
-                  type="button"
-                  id="auth-screen-tab-signin"
-                  onClick={() => {
-                    setMode('signin');
-                    setError(null);
-                    setMessage(null);
-                  }}
-                  className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all cursor-pointer ${
-                    mode === 'signin'
-                      ? 'bg-white dark:bg-[#1f222a] text-neutral-900 dark:text-white shadow-xs'
-                      : 'text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
-                  }`}
-                >
-                  Sign In
-                </button>
-                <button
-                  type="button"
-                  id="auth-screen-tab-signup"
-                  onClick={() => {
-                    setMode('signup');
-                    setError(null);
-                    setMessage(null);
-                  }}
-                  className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all cursor-pointer ${
-                    mode === 'signup'
-                      ? 'bg-white dark:bg-[#1f222a] text-neutral-900 dark:text-white shadow-xs'
-                      : 'text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
-                  }`}
-                >
-                  Create Account
-                </button>
-              </div>
-            )}
-
-            {mode === 'forgot' && (
-              <div className="px-5 pt-4 pb-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMode('signin');
-                    setError(null);
-                    setMessage(null);
-                  }}
-                  className="inline-flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-900 dark:hover:text-white transition-colors cursor-pointer"
-                >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>Back to Sign In</span>
-                </button>
-              </div>
-            )}
-
             {/* Form */}
-            <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-4">
-              {/* Name field for signup */}
-              {mode === 'signup' && (
-                <div>
-                  <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">
-                    Full Name
-                  </label>
-                  <div className="relative flex items-center">
-                    <User className="w-4 h-4 text-neutral-400 absolute left-3 pointer-events-none" />
-                    <input
-                      id="auth-screen-name"
-                      type="text"
-                      required
-                      placeholder="Alex Morgan"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      className="w-full pl-9 pr-3.5 py-2 text-xs bg-neutral-50 dark:bg-white/[0.04] border border-neutral-200 dark:border-white/[0.08] rounded-lg text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-400 focus:border-neutral-400 transition-colors"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Email field */}
-              <div>
-                <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">
-                  Email Address
-                </label>
-                <div className="relative flex items-center">
-                  <Mail className="w-4 h-4 text-neutral-400 absolute left-3 pointer-events-none" />
-                  <input
-                    id="auth-screen-email"
-                    type="email"
-                    required
-                    placeholder="name@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full pl-9 pr-3.5 py-2 text-xs bg-neutral-50 dark:bg-white/[0.04] border border-neutral-200 dark:border-white/[0.08] rounded-lg text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-400 focus:border-neutral-400 transition-colors"
-                  />
-                </div>
-              </div>
-
-              {/* Password field */}
-              {mode !== 'forgot' && (
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
-                      Password
+            <form
+              onSubmit={step === 'email' ? handleSendCode : handleVerifyCode}
+              className="p-5 sm:p-6 space-y-4"
+            >
+              {step === 'email' ? (
+                <>
+                  {/* Email */}
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">
+                      Email Address
                     </label>
-                    {mode === 'signin' && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMode('forgot');
-                          setError(null);
-                          setMessage(null);
-                        }}
-                        className="text-[11px] text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-200 transition-colors cursor-pointer"
-                      >
-                        Forgot password?
-                      </button>
-                    )}
+
+                    <div className="relative flex items-center">
+                      <Mail className="w-4 h-4 text-neutral-400 absolute left-3 pointer-events-none" />
+
+                      <input
+                        id="auth-screen-email"
+                        type="email"
+                        required
+                        autoComplete="email"
+                        placeholder="name@example.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="w-full pl-9 pr-3.5 py-2 text-xs bg-neutral-50 dark:bg-white/[0.04] border border-neutral-200 dark:border-white/[0.08] rounded-lg text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-400 focus:border-neutral-400 transition-colors"
+                      />
+                    </div>
                   </div>
-                  <div className="relative flex items-center">
-                    <Lock className="w-4 h-4 text-neutral-400 absolute left-3 pointer-events-none" />
+
+                  {/* Info */}
+                  <div className="p-2.5 rounded-lg bg-neutral-500/5 border border-neutral-200 dark:border-white/[0.06] text-neutral-500 dark:text-neutral-400 text-xs">
+                    We'll send a 6-digit verification code to your email.
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* OTP */}
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">
+                      Verification Code
+                    </label>
+
                     <input
-                      id="auth-screen-password"
-                      type={showPassword ? 'text' : 'password'}
+                      id="auth-screen-otp"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
                       required
-                      placeholder="••••••••"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full pl-9 pr-9 py-2 text-xs bg-neutral-50 dark:bg-white/[0.04] border border-neutral-200 dark:border-white/[0.08] rounded-lg text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-400 focus:border-neutral-400 transition-colors"
+                      autoFocus
+                      placeholder="123456"
+                      value={code}
+                      onChange={(e) =>
+                        setCode(e.target.value.replace(/\D/g, '').slice(0, 6))
+                      }
+                      className="w-full py-3 px-4 text-center text-lg tracking-[0.4em] font-semibold bg-neutral-50 dark:bg-white/[0.04] border border-neutral-200 dark:border-white/[0.08] rounded-lg text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-400 focus:border-neutral-400 transition-colors"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-2.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 p-1 cursor-pointer transition-colors"
-                    >
-                      {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    </button>
                   </div>
-                  {mode === 'signup' && (
-                    <p className="mt-1 text-[11px] text-neutral-400">
-                      Must be at least 6 characters
-                    </p>
-                  )}
-                </div>
+
+                  {/* Change Email */}
+                  <button
+                    type="button"
+                    onClick={handleChangeEmail}
+                    className="inline-flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-900 dark:hover:text-white transition-colors cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    Change email
+                  </button>
+                </>
               )}
 
-              {/* Alerts */}
+              {/* Error */}
               {error && (
                 <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-start gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -312,6 +280,7 @@ export function AuthScreen({
                 </div>
               )}
 
+              {/* Message */}
               {message && (
                 <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs flex items-start gap-2">
                   <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
@@ -319,7 +288,7 @@ export function AuthScreen({
                 </div>
               )}
 
-              {/* Submit Button */}
+              {/* Submit */}
               <button
                 id="auth-screen-submit-btn"
                 type="submit"
@@ -329,57 +298,36 @@ export function AuthScreen({
                 {loading ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Processing...</span>
+                    <span>
+                      {step === 'email'
+                        ? 'Sending Code...'
+                        : 'Verifying...'}
+                    </span>
                   </>
                 ) : (
                   <>
                     <span>
-                      {mode === 'signin'
-                        ? 'Sign In'
-                        : mode === 'signup'
-                        ? 'Create Account'
-                        : 'Send Reset Link'}
+                      {step === 'email'
+                        ? 'Send Verification Code'
+                        : 'Verify & Sign In'}
                     </span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </>
                 )}
               </button>
-            </form>
-          </div>
 
-          {/* Switch Prompt */}
-          <div className="mt-6 text-center text-xs text-neutral-500">
-            {mode === 'signin' ? (
-              <p>
-                Don't have an account?{' '}
+              {/* Resend */}
+              {step === 'otp' && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setMode('signup');
-                    setError(null);
-                    setMessage(null);
-                  }}
-                  className="font-semibold text-neutral-900 dark:text-white hover:underline cursor-pointer ml-1"
+                  onClick={handleResend}
+                  disabled={loading}
+                  className="w-full text-xs text-neutral-500 hover:text-neutral-900 dark:hover:text-white transition-colors cursor-pointer disabled:opacity-50"
                 >
-                  Create an account
+                  Resend verification code
                 </button>
-              </p>
-            ) : mode === 'signup' ? (
-              <p>
-                Already have an account?{' '}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMode('signin');
-                    setError(null);
-                    setMessage(null);
-                  }}
-                  className="font-semibold text-neutral-900 dark:text-white hover:underline cursor-pointer ml-1"
-                >
-                  Sign in
-                </button>
-              </p>
-            ) : null}
+              )}
+            </form>
           </div>
         </motion.div>
       </div>
